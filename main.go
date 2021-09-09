@@ -354,37 +354,22 @@ func (j *Job) parseString(s string) error {
 
 func parseDate(s string) (time.Time, error) {
 
-	date, err := time.Parse("2006-01-02 15:04", s)
-	if err == nil {
-		return date, nil
+	acceptedFormats := []string{
+		"2006-01-02 15:04",
+		"2006-01-02 03:04PM",
+		"2006/01/02 15:04",
+		"2006/01/02 03:04PM",
+		"01-02-2006 15:04",
+		"01-02-2006 03:04PM",
+		"01/02/2006 15:04",
+		"01/02/2006 03:04PM",
 	}
-	date, err = time.Parse("2006-01-02 03:04PM", s)
-	if err == nil {
-		return date, nil
-	}
-	date, err = time.Parse("2006/01/02 15:04", s)
-	if err == nil {
-		return date, nil
-	}
-	date, err = time.Parse("2006/01/02 03:04PM", s)
-	if err == nil {
-		return date, nil
-	}
-	date, err = time.Parse("01-02-2006 15:04", s)
-	if err == nil {
-		return date, nil
-	}
-	date, err = time.Parse("01-02-2006 03:04PM", s)
-	if err == nil {
-		return date, nil
-	}
-	date, err = time.Parse("01/02/2006 15:04", s)
-	if err == nil {
-		return date, nil
-	}
-	date, err = time.Parse("01/02/2006 03:04PM", s)
-	if err == nil {
-		return date, nil
+
+	for _, format := range acceptedFormats {
+		date, err := time.Parse(format, s)
+		if err == nil {
+			return date, nil
+		}
 	}
 
 	return time.Time{}, fmt.Errorf("invalid date format provided, please provide date in the format Year-Month-Day 24:00")
