@@ -239,26 +239,22 @@ func parseJobAttachment(ctx context.Context, m *discordgo.Message) (Job, error) 
 	rawResponse := string(body)
 	span.SetAttributes(attribute.String("ParseJobAttachment.RawContent", rawResponse))
 	trimmedContent := strings.Replace(strings.Replace(rawResponse, "\r", "", -1), "\x0d", "", -1)
-	content := strings.Split(trimmedContent, "\n")
-	if strings.Trim(content[0], " ") == "" {
-		content = content[1:]
-	}
 	createdDate, _ := m.Timestamp.Parse()
-	date, err := time.Parse("2006-01-02 15:04", content[1])
-	if err != nil {
-		span.SetAttributes(attribute.String("ParseJobAttachment.Error", err.Error()))
-		return Job{}, err
-	}
+
 	job := Job{
-		Title:         strings.Trim(content[0], " "),
 		Creator:       m.Author,
-		Date:          date,
-		Description:   strings.Join(content[2:], "\n"),
 		Server:        m.GuildID,
 		Channel:       destinationChannel,
 		CreatedDate:   createdDate,
 		SourceChannel: m.ChannelID,
 	}
+
+	err = job.parseString(trimmedContent)
+	if err != nil {
+		span.SetAttributes(attribute.String("ParseJobAttachment.Error", err.Error()))
+		return Job{}, err
+	}
+
 	span.SetAttributes(
 		attribute.String("ParseJobAttachment.Job.Title", job.Title),
 		attribute.String("ParseJobAttachment.Job.Creator", job.Creator.ID),
@@ -279,26 +275,23 @@ func parseJobMessage(ctx context.Context, m *discordgo.Message) (Job, error) {
 	ctx, span := tracer.Start(ctx, "ParseJobMessage")
 	defer span.End()
 
-	content := strings.Split(strings.Replace(m.Content, "job ", "", 1), "\n")
-	if strings.Trim(content[0], " ") == "" {
-		content = content[1:]
-	}
+	content := strings.Replace(m.Content, "job ", "", 1)
 	createdDate, _ := m.Timestamp.Parse()
-	date, err := time.Parse("2006-01-02 15:04", content[1])
-	if err != nil {
-		span.SetAttributes(attribute.String("ParseJobMessage.Error", err.Error()))
-		return Job{}, err
-	}
+
 	job := Job{
-		Title:         strings.Trim(content[0], " "),
 		Creator:       m.Author,
-		Date:          date,
-		Description:   strings.Join(content[2:], "\n"),
 		Server:        m.GuildID,
 		Channel:       destinationChannel,
 		CreatedDate:   createdDate,
 		SourceChannel: m.ChannelID,
 	}
+
+	err := job.parseString(content)
+	if err != nil {
+		span.SetAttributes(attribute.String("ParseJobMessage.Error", err.Error()))
+		return Job{}, err
+	}
+
 	span.SetAttributes(
 		attribute.String("ParseJobMessage.Job.Title", job.Title),
 		attribute.String("ParseJobMessage.Job.Creator", job.Creator.ID),
@@ -340,4 +333,21 @@ func formatJobEmbed(ctx context.Context, job Job) *discordgo.MessageEmbed {
 	}
 
 	return &jobEmbed
+}
+
+func (j *Job) parseString(s string) error {
+	content := strings.Split(s, "\n")
+	if strings.Trim(content[0], " ") == "" {
+		content = content[1:]
+	}
+	date, err := time.Parse("2006-01-02 15:04", content[1])
+	if err != nil {
+		return err
+	}
+
+	j.Title = strings.Trim(content[0], " ")
+	j.Date = date
+	j.Description = strings.Join(content[2:], "\n")
+
+	return nil
 }
