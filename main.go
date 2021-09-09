@@ -340,7 +340,7 @@ func (j *Job) parseString(s string) error {
 	if strings.Trim(content[0], " ") == "" {
 		content = content[1:]
 	}
-	date, err := time.Parse("2006-01-02 15:04", content[1])
+	date, err := parseDate(content[1])
 	if err != nil {
 		return err
 	}
@@ -350,4 +350,42 @@ func (j *Job) parseString(s string) error {
 	j.Description = strings.Join(content[2:], "\n")
 
 	return nil
+}
+
+func parseDate(s string) (time.Time, error) {
+
+	date, err := time.Parse("2006-01-02 15:04", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("2006-01-02 03:04PM", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("2006/01/02 15:04", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("2006/01/02 03:04PM", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("01-02-2006 15:04", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("01-02-2006 03:04PM", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("01/02/2006 15:04", s)
+	if err == nil {
+		return date, nil
+	}
+	date, err = time.Parse("01/02/2006 03:04PM", s)
+	if err == nil {
+		return date, nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid date format provided, please provide date in the format Year-Month-Day 24:00")
 }
