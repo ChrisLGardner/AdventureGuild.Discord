@@ -13,6 +13,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/chrislgardner/AdventureGuild.Discord/oteldiscordgo"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc/credentials"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -49,6 +52,11 @@ type Job struct {
 
 var (
 	destinationChannel string
+	messageTemplate    string = `
+Hi %s,
+
+Just a friendly reminder that you've got a session on %s for the adventure titled %s. More details are here: %s
+	`
 )
 
 func main() {
@@ -207,6 +215,12 @@ func addJob(ctx context.Context, m *discordgo.Message, s *discordgo.Session) (st
 		return "", fmt.Errorf("too many attachments (%d) on message", len(m.Attachments))
 	}
 
+	err = createReminder(ctx, job)
+	if err != nil {
+		span.SetAttributes(attribute.String("AddJob.Error", err.Error()))
+		return "", err
+	}
+
 	sendJob(ctx, s, destinationChannel, job)
 
 	return job.Title, nil
@@ -356,13 +370,13 @@ func parseDate(s string) (time.Time, error) {
 
 	acceptedFormats := []string{
 		"2006-01-02 15:04",
-		"2006-01-02 03:04PM",
+		"2006-01-02 3:04PM",
 		"2006/01/02 15:04",
-		"2006/01/02 03:04PM",
+		"2006/01/02 3:04PM",
 		"01-02-2006 15:04",
-		"01-02-2006 03:04PM",
+		"01-02-2006 3:04PM",
 		"01/02/2006 15:04",
-		"01/02/2006 03:04PM",
+		"01/02/2006 3:04PM",
 	}
 
 	for _, format := range acceptedFormats {
@@ -373,4 +387,112 @@ func parseDate(s string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("invalid date format provided, please provide date in the format Year-Month-Day 24:00")
+}
+
+func createReminder(ctx context.Context, job Job) error {
+
+	tracer := otel.Tracer("AdventureGuild.Discord")
+	ctx, span := tracer.Start(ctx, "CreateReminder")
+	defer span.End()
+
+	reminder := Reminder{
+		Server:      job.Server,
+		Channel:     job.Channel,
+		Creator:     job.Creator.ID,
+		Message:     messageTemplate,
+		Job:         job,
+		Date:        job.Date,
+		CreatedDate: time.Now(),
+	}
+
+	err := storeReminder(ctx, reminder)
+	if err != nil {
+		span.SetAttributes(attribute.String("CreateReminder.Error", err.Error()))
+		return err
+	}
+	return nil
+}
+
+func storeReminder(ctx context.Context, reminder Reminder) error {
+
+	tracer := otel.Tracer("AdventureGuild.Discord")
+	ctx, span := tracer.Start(ctx, "StoreReminder")
+	defer span.End()
+	span.SetAttributes(attribute.Any("StoreReminder.Reminder", reminder))
+
+	db, err := connectDb(ctx, os.Getenv("COSMOSDB_URI"))
+	if err != nil {
+		span.SetAttributes(attribute.String("StoreReminder.Error", err.Error()))
+		return err
+	}
+
+	err = writeDbObject(ctx, db, reminder)
+	if err != nil {
+		span.SetAttributes(attribute.String("StoreReminder.Error", err.Error()))
+		return err
+	}
+
+	if err = db.Disconnect(ctx); err != nil {
+		span.SetAttributes(attribute.String("StoreReminder.Error", err.Error()))
+		return err
+	}
+
+	return nil
+}
+
+func connectDb(ctx context.Context, uri string) (*mongo.Client, error) {
+	tracer := otel.Tracer("AdventureGuild.Discord")
+	ctx, span := tracer.Start(ctx, "ConnectDB")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("ConnectDB.mongo.server", uri))
+
+	clientOptions := options.Client().ApplyURI(uri).SetDirect(true)
+	c, err := mongo.NewClient(clientOptions)
+	if err != nil {
+		span.SetAttributes(attribute.String("ConnectDB.mongo.client.error", err.Error()))
+		return nil, err
+	}
+
+	err = c.Connect(ctx)
+	if err != nil {
+		span.SetAttributes(attribute.String("ConnectDB.mongo.connect.error", err.Error()))
+		return nil, err
+	}
+
+	err = c.Ping(ctx, nil)
+	if err != nil {
+		span.SetAttributes(attribute.String("ConnectDB.mongo.ping.error", err.Error()))
+		return nil, err
+	}
+
+	return c, nil
+}
+
+func writeDbObject(ctx context.Context, mc *mongo.Client, obj interface{}) error {
+
+	tracer := otel.Tracer("AdventureGuild.Discord")
+	ctx, span := tracer.Start(ctx, "WriteDBObject")
+	defer span.End()
+
+	data, err := bson.Marshal(obj)
+	if err != nil {
+		span.SetAttributes(attribute.String("WriteDBObject.mongo.error", err.Error()))
+		return err
+	}
+
+	collection := mc.Database("reminders").Collection("reminders")
+	span.SetAttributes(attribute.String("WriteDBObject.mongo.collection", collection.Name()))
+	span.SetAttributes(attribute.String("WriteDBObject.mongo.database", collection.Database().Name()))
+	span.SetAttributes(attribute.Any("WriteDBObject.mongo.object", data))
+
+	res, err := collection.InsertOne(ctx, data)
+	if err != nil {
+		span.SetAttributes(attribute.String("WriteDBObject.mongo.error", err.Error()))
+		return err
+	}
+
+	span.SetAttributes(attribute.Any("WriteDBObject.mongo.id", res.InsertedID))
+
+	return nil
 }
