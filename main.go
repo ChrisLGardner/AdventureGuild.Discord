@@ -88,7 +88,7 @@ func main() {
 	go sendReminders(session)
 	session.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuildMessages)
 
-	destinationChannel = "884786622846099466"
+	destinationChannel = "886924012129771531"
 	session.AddHandler(routMessage)
 }
 
