@@ -53,8 +53,8 @@ type Job struct {
 }
 
 var (
-	destinationChannel string
-	messageTemplate    string = `
+	destinationChannelConfig map[string]string
+	messageTemplate          string = `
 Hi %s,
 
 Just a friendly reminder that you've got a session on %s for the adventure titled %s. More details are here: %s
@@ -88,7 +88,7 @@ func main() {
 	go sendReminders(session)
 	session.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuildMessages)
 
-	destinationChannel = "886924012129771531"
+	destinationChannelConfig = make(map[string]string)
 	session.AddHandler(routMessage)
 }
 
@@ -162,6 +162,14 @@ func routMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 		sendResponse(ctx, s, m.ChannelID, resp)
+	} else if command == "channel" {
+		resp, err := getChannels(ctx, m.Message, s)
+		if err != nil {
+			span.SetAttributes(attribute.Any("Error", err))
+			sendResponse(ctx, s, m.ChannelID, err.Error())
+			return
+		}
+		sendResponse(ctx, s, m.ChannelID, resp)
 	}
 }
 
@@ -224,7 +232,15 @@ func addJob(ctx context.Context, m *discordgo.Message, s *discordgo.Session) (st
 		return "", fmt.Errorf("too many attachments (%d) on message", len(m.Attachments))
 	}
 
-	JobMessage, err := sendJob(ctx, s, destinationChannel, job)
+	if _, ok := destinationChannelConfig[m.GuildID]; !ok {
+		destinationChannelConfig[m.GuildID], err = getChannels(ctx, m, s)
+		if err != nil {
+			span.SetAttributes(attribute.String("AddJob.Error", err.Error()))
+			return "", err
+		}
+	}
+
+	JobMessage, err := sendJob(ctx, s, destinationChannelConfig[m.GuildID], job)
 	if err != nil {
 		span.SetAttributes(attribute.String("AddJob.Error", err.Error()))
 		return "", err
@@ -271,7 +287,7 @@ func parseJobAttachment(ctx context.Context, m *discordgo.Message) (Job, error) 
 	job := Job{
 		Creator:       m.Author,
 		Server:        m.GuildID,
-		Channel:       destinationChannel,
+		Channel:       destinationChannelConfig[m.GuildID],
 		CreatedDate:   createdDate,
 		SourceChannel: m.ChannelID,
 	}
@@ -308,7 +324,7 @@ func parseJobMessage(ctx context.Context, m *discordgo.Message) (Job, error) {
 	job := Job{
 		Creator:       m.Author,
 		Server:        m.GuildID,
-		Channel:       destinationChannel,
+		Channel:       destinationChannelConfig[m.GuildID],
 		CreatedDate:   createdDate,
 		SourceChannel: m.ChannelID,
 	}
@@ -697,15 +713,35 @@ func getReactedUsers(ctx context.Context, session *discordgo.Session, server, ch
 func sendUserDM(ctx context.Context, session *discordgo.Session, message, userid string) {
 
 	tracer := otel.Tracer("AdventureGuild.Discord")
-	ctx, span := tracer.Start(ctx, "sendUserDM")
+	ctx, span := tracer.Start(ctx, "SendUserDM")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("SendUserDM.Message", message), attribute.String("SendUserDM.UserID", userid))
 	channel, err := session.UserChannelCreate(userid)
 	if err != nil {
-		span.SetAttributes(attribute.String("sendUserDM.error", err.Error()))
+		span.SetAttributes(attribute.String("SendUserDM.error", err.Error()))
 	}
 	span.SetAttributes(attribute.String("SendUserDM.Channel", channel.ID))
 
 	session.ChannelMessageSend(channel.ID, message)
+}
+
+func getChannels(ctx context.Context, message *discordgo.Message, session *discordgo.Session) (string, error) {
+	tracer := otel.Tracer("AdventureGuild.Discord")
+	ctx, span := tracer.Start(ctx, "GetChannels")
+	defer span.End()
+
+	channels, err := session.GuildChannels(message.GuildID)
+	if err != nil {
+		span.SetAttributes(attribute.String("GetChannels.error", err.Error()))
+	}
+
+	for _, channel := range channels {
+		if channel.Name == "job-board" || channel.Name == "jobboard" {
+			span.SetAttributes(attribute.String("GetChannels.JobBoardID", channel.ID))
+			return channel.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to find channel named job-board or jobboard. Please create and try again")
 }
