@@ -162,14 +162,6 @@ func routMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 		sendResponse(ctx, s, m.ChannelID, resp)
-	} else if command == "channel" {
-		resp, err := getChannels(ctx, m.Message, s)
-		if err != nil {
-			span.SetAttributes(attribute.Any("Error", err))
-			sendResponse(ctx, s, m.ChannelID, err.Error())
-			return
-		}
-		sendResponse(ctx, s, m.ChannelID, resp)
 	}
 }
 
