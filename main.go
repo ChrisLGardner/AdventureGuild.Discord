@@ -356,7 +356,7 @@ func formatJobEmbed(ctx context.Context, job Job) *discordgo.MessageEmbed {
 		},
 		{
 			Name:   "Date",
-			Value:  job.Date.Format("2006-01-02 15:04"),
+			Value:  fmt.Sprintf("<t:%v:f>", job.Date.Unix()),
 			Inline: true,
 		},
 	}
