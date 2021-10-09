@@ -22,12 +22,11 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 type Reminder struct {
@@ -96,27 +95,33 @@ func initHoneycomb() (context.Context, *sdktrace.TracerProvider) {
 	ctx := context.Background()
 
 	// Create an OTLP exporter, passing in Honeycomb credentials as environment variables.
-	exp, err := otlp.NewExporter(
-		ctx,
-		otlpgrpc.NewDriver(
-			otlpgrpc.WithEndpoint("api.honeycomb.io:443"),
-			otlpgrpc.WithHeaders(map[string]string{
-				"x-honeycomb-team":    os.Getenv("HONEYCOMB_KEY"),
-				"x-honeycomb-dataset": os.Getenv("HONEYCOMB_DATASET"),
-			}),
-			otlpgrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")),
-		),
+	exp, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint("api.honeycomb.io:443"),
+		otlptracegrpc.WithHeaders(map[string]string{
+			"x-honeycomb-team":    os.Getenv("HONEYCOMB_KEY"),
+			"x-honeycomb-dataset": os.Getenv("HONEYCOMB_DATASET"),
+		}),
+		otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")),
 	)
 
 	if err != nil {
 		fmt.Printf("failed to initialize exporter: %v", err)
 	}
 
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			// the service name used to display traces in backends
+			semconv.ServiceNameKey.String("AdventureGuild.Discord"),
+		),
+	)
+	if err != nil {
+		fmt.Printf("failed to initialize respource: %v", err)
+	}
 	// Create a new tracer provider with a batch span processor and the otlp exporter.
 	// Add a resource attribute service.name that identifies the service in the Honeycomb UI.
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
-		sdktrace.WithResource(resource.NewWithAttributes(semconv.ServiceNameKey.String("AdventureGuild.Discord"))),
+		sdktrace.WithResource(res),
 	)
 
 	// Set the Tracer Provider and the W3C Trace Context propagator as globals
@@ -157,7 +162,7 @@ func routMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else if command == "job" {
 		resp, err := addJob(ctx, m.Message, s)
 		if err != nil {
-			span.SetAttributes(attribute.Any("Error", err))
+			span.SetAttributes(attribute.String("Error", err.Error()))
 			sendResponse(ctx, s, m.ChannelID, err.Error())
 			return
 		}
@@ -181,7 +186,7 @@ func sendJob(ctx context.Context, s *discordgo.Session, cid string, job Job) (*d
 	ctx, span := tracer.Start(ctx, "SendJob")
 	defer span.End()
 
-	span.SetAttributes(attribute.Any("response", job), attribute.String("channel", cid))
+	span.SetAttributes(attribute.String("response", fmt.Sprintf("%v", job)), attribute.String("channel", cid))
 
 	jobEmbed := formatJobEmbed(ctx, job)
 
@@ -293,11 +298,11 @@ func parseJobAttachment(ctx context.Context, m *discordgo.Message) (Job, error) 
 	span.SetAttributes(
 		attribute.String("ParseJobAttachment.Job.Title", job.Title),
 		attribute.String("ParseJobAttachment.Job.Creator", job.Creator.ID),
-		attribute.Any("ParseJobAttachment.Job.Date", job.Date),
+		attribute.Stringer("ParseJobAttachment.Job.Date", job.Date),
 		attribute.String("ParseJobAttachment.Job.Description", job.Description),
 		attribute.String("ParseJobAttachment.Job.Server", job.Server),
 		attribute.String("ParseJobAttachment.Job.Channel", job.Channel),
-		attribute.Any("ParseJobAttachment.Job.CreatedDate", job.CreatedDate),
+		attribute.Stringer("ParseJobAttachment.Job.CreatedDate", job.CreatedDate),
 		attribute.String("ParseJobAttachment.Job.SourceChannel", job.SourceChannel),
 	)
 
@@ -330,11 +335,11 @@ func parseJobMessage(ctx context.Context, m *discordgo.Message) (Job, error) {
 	span.SetAttributes(
 		attribute.String("ParseJobMessage.Job.Title", job.Title),
 		attribute.String("ParseJobMessage.Job.Creator", job.Creator.ID),
-		attribute.Any("ParseJobMessage.Job.Date", job.Date),
+		attribute.Stringer("ParseJobMessage.Job.Date", job.Date),
 		attribute.String("ParseJobMessage.Job.Description", job.Description),
 		attribute.String("ParseJobMessage.Job.Server", job.Server),
 		attribute.String("ParseJobMessage.Job.Channel", job.Channel),
-		attribute.Any("ParseJobMessage.Job.CreatedDate", job.CreatedDate),
+		attribute.Stringer("ParseJobMessage.Job.CreatedDate", job.CreatedDate),
 		attribute.String("ParseJobMessage.Job.SourceChannel", job.SourceChannel),
 	)
 
@@ -346,7 +351,7 @@ func formatJobEmbed(ctx context.Context, job Job) *discordgo.MessageEmbed {
 	ctx, span := tracer.Start(ctx, "FormatJobEmbed")
 	defer span.End()
 
-	span.SetAttributes(attribute.Any("FormatJobEmbed.Job", job))
+	span.SetAttributes(attribute.String("FormatJobEmbed.Job", fmt.Sprintf("%v", job)))
 
 	embedFields := []*discordgo.MessageEmbedField{
 		{
@@ -427,7 +432,7 @@ func createReminder(ctx context.Context, job Job, jobMessage *discordgo.Message)
 		JobBoardMessage: jobMessage.ID,
 	}
 
-	span.SetAttributes(attribute.Any("CreateReminder.Reminder", reminder))
+	span.SetAttributes(attribute.String("CreateReminder.Reminder", fmt.Sprintf("%v", reminder)))
 
 	err := storeReminder(ctx, reminder)
 	if err != nil {
@@ -442,7 +447,7 @@ func storeReminder(ctx context.Context, reminder Reminder) error {
 	tracer := otel.Tracer("AdventureGuild.Discord")
 	ctx, span := tracer.Start(ctx, "StoreReminder")
 	defer span.End()
-	span.SetAttributes(attribute.Any("StoreReminder.Reminder", reminder))
+	span.SetAttributes(attribute.String("StoreReminder.Reminder", fmt.Sprintf("%v", reminder)))
 
 	db, err := connectDb(ctx, os.Getenv("COSMOSDB_URI"))
 	if err != nil {
@@ -508,7 +513,7 @@ func writeDbObject(ctx context.Context, mc *mongo.Client, obj interface{}) error
 	collection := mc.Database("reminders").Collection("reminders")
 	span.SetAttributes(attribute.String("WriteDBObject.mongo.collection", collection.Name()))
 	span.SetAttributes(attribute.String("WriteDBObject.mongo.database", collection.Database().Name()))
-	span.SetAttributes(attribute.Any("WriteDBObject.mongo.object", data))
+	span.SetAttributes(attribute.String("WriteDBObject.mongo.object", fmt.Sprintf("%s", data)))
 
 	res, err := collection.InsertOne(ctx, data)
 	if err != nil {
@@ -516,7 +521,7 @@ func writeDbObject(ctx context.Context, mc *mongo.Client, obj interface{}) error
 		return err
 	}
 
-	span.SetAttributes(attribute.Any("WriteDBObject.mongo.id", res.InsertedID))
+	span.SetAttributes(attribute.String("WriteDBObject.mongo.id", fmt.Sprintf("%v", res.InsertedID)))
 
 	return nil
 }
@@ -530,7 +535,7 @@ func runQuery(ctx context.Context, mc *mongo.Client, query interface{}) ([]bson.
 	collection := mc.Database("reminders").Collection("reminders")
 	span.SetAttributes(attribute.String("RunQuery.mongo.collection", collection.Name()))
 	span.SetAttributes(attribute.String("RunQuery.mongo.database", collection.Database().Name()))
-	span.SetAttributes(attribute.Any("RunQuery.mongo.query", query))
+	span.SetAttributes(attribute.String("RunQuery.mongo.query", fmt.Sprint(query)))
 
 	cursor, err := collection.Find(ctx, query)
 	if err != nil {
@@ -545,7 +550,7 @@ func runQuery(ctx context.Context, mc *mongo.Client, query interface{}) ([]bson.
 	}
 
 	span.SetAttributes(attribute.Int("RunQuery.mongo.results.Count", len(results)))
-	span.SetAttributes(attribute.Any("RunQuery.mongo.results.raw", results))
+	span.SetAttributes(attribute.String("RunQuery.mongo.results.raw", fmt.Sprint(results)))
 
 	return results, nil
 }
@@ -587,7 +592,7 @@ func sendReminders(session *discordgo.Session) {
 				attribute.String("SendIndividualReminder.Channel", r.Channel),
 				attribute.String("SendIndividualReminder.JobBoardMessage", r.JobBoardMessage),
 				attribute.String("SendIndividualReminder.CreatedDate", r.CreatedDate.Format(time.RFC3339)),
-				attribute.Any("SendIndividualReminder.Job", r.Job),
+				attribute.String("SendIndividualReminder.Job", fmt.Sprintf("%v", r.Job)),
 			)
 
 			users, err := getReactedUsers(ctx, session, r.Server, r.Channel, r.JobBoardMessage)
@@ -597,7 +602,7 @@ func sendReminders(session *discordgo.Session) {
 				continue
 			}
 
-			childSpan.SetAttributes(attribute.Any("SendIndividualReminder.Users", users))
+			childSpan.SetAttributes(attribute.String("SendIndividualReminder.Users", fmt.Sprintf("%v", users)))
 			sourceMessageUrl := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", r.Server, r.Channel, r.JobBoardMessage)
 
 			for _, user := range users {
@@ -636,7 +641,7 @@ func findReminders(ctx context.Context, db *mongo.Client, interval int) ([]Remin
 		},
 	}
 
-	span.SetAttributes(attribute.Any("FindReminders.query", query))
+	span.SetAttributes(attribute.String("FindReminders.query", fmt.Sprint(query)))
 
 	res, err := runQuery(ctx, db, query)
 	if err != nil {
@@ -677,7 +682,7 @@ func getReactedUsers(ctx context.Context, session *discordgo.Session, server, ch
 		span.SetAttributes(attribute.String("GetReactedUsers.ChannelMessage.Error", err.Error()))
 		return nil, err
 	}
-	span.SetAttributes(attribute.Any("GetReactedUsers.ChannelMessage", channelMessage[0]), attribute.Int("GetReactedUsers.ChannelMessageCount", len(channelMessage)))
+	span.SetAttributes(attribute.String("GetReactedUsers.ChannelMessage", fmt.Sprint(channelMessage[0])), attribute.Int("GetReactedUsers.ChannelMessageCount", len(channelMessage)))
 
 	reactedUsersMap := make(map[string]bool)
 	reactedUsers := []*discordgo.User{}
@@ -689,7 +694,7 @@ func getReactedUsers(ctx context.Context, session *discordgo.Session, server, ch
 			span.SetAttributes(attribute.String("GetReactedUsers.MessageReactions.Error", err.Error()))
 			return nil, err
 		}
-		span.SetAttributes(attribute.Any(fmt.Sprintf("GetReactedUsers.MessageReactions.Emoji.%s.Users", emoji.Emoji.ID), users))
+		span.SetAttributes(attribute.String(fmt.Sprintf("GetReactedUsers.MessageReactions.Emoji.%s.Users", emoji.Emoji.ID), fmt.Sprint(users)))
 		for _, user := range users {
 			if _, ok := reactedUsersMap[user.ID]; !ok {
 				reactedUsersMap[user.ID] = true
@@ -698,7 +703,7 @@ func getReactedUsers(ctx context.Context, session *discordgo.Session, server, ch
 		}
 	}
 
-	span.SetAttributes(attribute.Any("GetReactedUsers.Users", reactedUsers))
+	span.SetAttributes(attribute.String("GetReactedUsers.Users", fmt.Sprint(reactedUsers)))
 	return reactedUsers, nil
 }
 
