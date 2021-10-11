@@ -175,7 +175,7 @@ func sendResponse(ctx context.Context, s *discordgo.Session, cid string, m strin
 	ctx, span := tracer.Start(ctx, "SendResponse")
 	defer span.End()
 
-	span.SetAttributes(attribute.String("response", m), attribute.String("chennel", cid))
+	span.SetAttributes(attribute.String("response", m), attribute.String("channel", cid))
 
 	s.ChannelMessageSend(cid, m)
 }
@@ -298,11 +298,11 @@ func parseJobAttachment(ctx context.Context, m *discordgo.Message) (Job, error) 
 	span.SetAttributes(
 		attribute.String("ParseJobAttachment.Job.Title", job.Title),
 		attribute.String("ParseJobAttachment.Job.Creator", job.Creator.ID),
-		attribute.Stringer("ParseJobAttachment.Job.Date", job.Date),
+		attribute.String("ParseJobAttachment.Job.Date", job.Date.Format(time.RFC3339)),
 		attribute.String("ParseJobAttachment.Job.Description", job.Description),
 		attribute.String("ParseJobAttachment.Job.Server", job.Server),
 		attribute.String("ParseJobAttachment.Job.Channel", job.Channel),
-		attribute.Stringer("ParseJobAttachment.Job.CreatedDate", job.CreatedDate),
+		attribute.String("ParseJobAttachment.Job.CreatedDate", job.CreatedDate.Format(time.RFC3339)),
 		attribute.String("ParseJobAttachment.Job.SourceChannel", job.SourceChannel),
 	)
 
@@ -335,11 +335,11 @@ func parseJobMessage(ctx context.Context, m *discordgo.Message) (Job, error) {
 	span.SetAttributes(
 		attribute.String("ParseJobMessage.Job.Title", job.Title),
 		attribute.String("ParseJobMessage.Job.Creator", job.Creator.ID),
-		attribute.Stringer("ParseJobMessage.Job.Date", job.Date),
+		attribute.String("ParseJobMessage.Job.Date", job.Date.Format(time.RFC3339)),
 		attribute.String("ParseJobMessage.Job.Description", job.Description),
 		attribute.String("ParseJobMessage.Job.Server", job.Server),
 		attribute.String("ParseJobMessage.Job.Channel", job.Channel),
-		attribute.Stringer("ParseJobMessage.Job.CreatedDate", job.CreatedDate),
+		attribute.String("ParseJobMessage.Job.CreatedDate", job.CreatedDate.Format(time.RFC3339)),
 		attribute.String("ParseJobMessage.Job.SourceChannel", job.SourceChannel),
 	)
 
@@ -513,7 +513,6 @@ func writeDbObject(ctx context.Context, mc *mongo.Client, obj interface{}) error
 	collection := mc.Database("reminders").Collection("reminders")
 	span.SetAttributes(attribute.String("WriteDBObject.mongo.collection", collection.Name()))
 	span.SetAttributes(attribute.String("WriteDBObject.mongo.database", collection.Database().Name()))
-	span.SetAttributes(attribute.String("WriteDBObject.mongo.object", fmt.Sprintf("%s", data)))
 
 	res, err := collection.InsertOne(ctx, data)
 	if err != nil {
