@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -186,7 +187,7 @@ func sendJob(ctx context.Context, s *discordgo.Session, cid string, job Job) (*d
 	ctx, span := tracer.Start(ctx, "SendJob")
 	defer span.End()
 
-	span.SetAttributes(attribute.String("response", fmt.Sprintf("%v", job)), attribute.String("channel", cid))
+	span.SetAttributes(attribute.String("response", job.json()), attribute.String("channel", cid))
 
 	jobEmbed := formatJobEmbed(ctx, job)
 
@@ -351,7 +352,7 @@ func formatJobEmbed(ctx context.Context, job Job) *discordgo.MessageEmbed {
 	ctx, span := tracer.Start(ctx, "FormatJobEmbed")
 	defer span.End()
 
-	span.SetAttributes(attribute.String("FormatJobEmbed.Job", fmt.Sprintf("%v", job)))
+	span.SetAttributes(attribute.String("FormatJobEmbed.Job", job.json()))
 
 	embedFields := []*discordgo.MessageEmbedField{
 		{
@@ -390,6 +391,18 @@ func (j *Job) parseString(s string) error {
 	j.Description = strings.Join(content[2:], "\n")
 
 	return nil
+}
+
+func (j Job) json() string {
+
+	str, _ := json.Marshal(j)
+	return string(str)
+}
+
+func (r Reminder) json() string {
+
+	str, _ := json.Marshal(r)
+	return string(str)
 }
 
 func parseDate(s string) (time.Time, error) {
@@ -432,7 +445,7 @@ func createReminder(ctx context.Context, job Job, jobMessage *discordgo.Message)
 		JobBoardMessage: jobMessage.ID,
 	}
 
-	span.SetAttributes(attribute.String("CreateReminder.Reminder", fmt.Sprintf("%v", reminder)))
+	span.SetAttributes(attribute.String("CreateReminder.Reminder", reminder.json()))
 
 	err := storeReminder(ctx, reminder)
 	if err != nil {
@@ -447,7 +460,7 @@ func storeReminder(ctx context.Context, reminder Reminder) error {
 	tracer := otel.Tracer("AdventureGuild.Discord")
 	ctx, span := tracer.Start(ctx, "StoreReminder")
 	defer span.End()
-	span.SetAttributes(attribute.String("StoreReminder.Reminder", fmt.Sprintf("%v", reminder)))
+	span.SetAttributes(attribute.String("StoreReminder.Reminder", reminder.json()))
 
 	db, err := connectDb(ctx, os.Getenv("COSMOSDB_URI"))
 	if err != nil {
