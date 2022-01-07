@@ -238,6 +238,8 @@ func addJob(ctx context.Context, m *discordgo.Message, s *discordgo.Session) (st
 		}
 	}
 
+	job.Channel = destinationChannelConfig[m.GuildID]
+
 	JobMessage, err := sendJob(ctx, s, destinationChannelConfig[m.GuildID], job)
 	if err != nil {
 		span.SetAttributes(attribute.String("AddJob.Error", err.Error()))
