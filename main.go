@@ -623,6 +623,13 @@ func sendReminders(session *discordgo.Session) {
 				sendUserDM(ctx, session, message, user.ID)
 			}
 
+			err = RemoveReminder(ctx, db, r.JobBoardMessage)
+			if err != nil {
+				childSpan.SetAttributes(attribute.String("SendIndividualReminder.remove.error", err.Error()))
+				childSpan.End()
+				continue
+			}
+
 			childSpan.End()
 		}
 
@@ -634,7 +641,7 @@ func sendReminders(session *discordgo.Session) {
 		}
 
 		span.End()
-		time.Sleep(time.Duration(interval) * time.Hour)
+		time.Sleep(1 * time.Hour)
 	}
 }
 
@@ -681,6 +688,31 @@ func findReminders(ctx context.Context, db *mongo.Client, interval int) ([]Remin
 	}
 
 	return reminders, nil
+}
+
+func RemoveReminder(ctx context.Context, mc *mongo.Client, jobMessage string) error {
+	tracer := otel.Tracer("AdventureGuild.Discord")
+	ctx, span := tracer.Start(ctx, "RemoveReminder")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("RemoveReminder.JobMessage", jobMessage))
+
+	bsonQuery := bson.M{
+		"jobboardmessage": bson.M{
+			"$eq": jobMessage,
+		},
+	}
+
+	collection := mc.Database("reminders").Collection("reminders")
+	res, err := collection.DeleteOne(ctx, bsonQuery)
+	if err != nil {
+		span.SetAttributes(attribute.String("RemoveReminder.Error", err.Error()))
+		return fmt.Errorf("failed to delete reminder from DB: %v", err)
+	}
+
+	span.SetAttributes(attribute.Int64("RemoveReminder.DeletedCount", res.DeletedCount))
+
+	return nil
 }
 
 func getReactedUsers(ctx context.Context, session *discordgo.Session, server, channel, message string) ([]*discordgo.User, error) {
