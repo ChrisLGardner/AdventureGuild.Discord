@@ -282,7 +282,7 @@ func parseJobAttachment(ctx context.Context, m *discordgo.Message) (Job, error) 
 	rawResponse := string(body)
 	span.SetAttributes(attribute.String("ParseJobAttachment.RawContent", rawResponse))
 	trimmedContent := strings.Replace(strings.Replace(rawResponse, "\r", "", -1), "\x0d", "", -1)
-	createdDate, _ := m.Timestamp.Parse()
+	createdDate := m.Timestamp
 
 	job := Job{
 		Creator:       m.Author,
@@ -319,7 +319,7 @@ func parseJobMessage(ctx context.Context, m *discordgo.Message) (Job, error) {
 	defer span.End()
 
 	content := strings.Replace(m.Content, "job ", "", 1)
-	createdDate, _ := m.Timestamp.Parse()
+	createdDate := m.Timestamp
 
 	job := Job{
 		Creator:       m.Author,
