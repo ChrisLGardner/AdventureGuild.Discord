@@ -4,6 +4,7 @@
 version: 2.1
 orbs:
   buildevents: honeycombio/buildevents@0.2.7
+  kubernetes: circleci/kubernetes@1.3.0
 
 executors:
   linuxgo:
@@ -71,6 +72,11 @@ jobs:
                     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID bicep_build -- \
                     bicep build deploy.bicep --outfile artifacts/deploy.json
 
+            - run: |
+                    buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID update_pod_version -- \
+                    sed -i "s/{{ContainerVersion}}/$MAJOR.$MINOR.$BUILD_NUMBER/g" deploy.yml \
+                    && cp deploy.yml artifacts/deploy.yml
+
             - run: echo "size=$(du -sb artifacts | cut -f 1)" >> $BASH_ENV
             
             - buildevents/add_context:
@@ -89,6 +95,7 @@ jobs:
                 paths:
                   - AdventureGuild.Discord
                   - deploy.json
+                  - deploy.yml
 
   publish:
     machine:
@@ -140,17 +147,15 @@ jobs:
                   az login --service-principal -u $AZ_SP_UUID -p $AZ_SP_PASS --tenant $AZ_SP_TENANT
             
             - run: |
-                  buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID az_container_update -- \
+                  buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID az_infra_update -- \
                   az deployment group create --resource-group $AZ_RG --template-file artifacts/deploy.json \
-                  --name $MAJOR.$MINOR.$BUILD_NUMBER \
-                  --parameters containerName=$AZ_ACI containerVersion=$MAJOR.$MINOR.$BUILD_NUMBER Token=$DISCORD_TOKEN \
-                  ImageRegistryPassword=$AZ_REG_PASSWORD HoneycombDataset=$HONEYCOMB_DATASET HoneycombApiKey=$MARKER_API_KEY \
-                  VirtualNetwork=$VNET VirtualNetworkRG=$VNETRG
-                  
-
+                  --name $MAJOR.$MINOR.$BUILD_NUMBER --parameters containerName=$AZ_ACI
             - run: |
-                  buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID az_container_start -- \
-                  az container start --resource-group $AZ_RG --name $AZ_ACI
+                  buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID az_kube_connection -- \
+                   az aks get-credentials --resource-group $AKS_RG --name $AKS_NAME  
+            - run: |
+                  buildevents cmd $CIRCLE_WORKFLOW_ID $BUILDEVENTS_SPAN_ID kube_config_update -- \
+                   kubectl apply -f artifacts/deploy.yml
 
             - run: |
                   DATE=$(date +%s)
