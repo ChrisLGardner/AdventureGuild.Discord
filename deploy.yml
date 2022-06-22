@@ -15,22 +15,22 @@ spec:
         valueFrom:
           secretKeyRef:
             name: adventure-guild
-            key: adventure-guild-discord-token
+            key: adventure-guild-DISCORD-TOKEN
       - name: HONEYCOMB_KEY
         valueFrom:
           secretKeyRef:
             name: adventure-guild
-            key: adventure-guild-honeycomb-key
+            key: adventure-guild-HONEYCOMB-KEY
       - name: HONEYCOMB_DATASET
         valueFrom:
           secretKeyRef:
             name: adventure-guild
-            key: adventure-guild-honeycomb-dataset
+            key: adventure-guild-HONEYCOMB-DATASET
       - name: COSMOSDB_URI
         valueFrom:
           secretKeyRef:
             name: adventure-guild
-            key: adventure-guild-cosmosdb-uri
+            key: adventure-guild-COSMOSDB-URI
   volumes:
     - name: secrets-store
       csi:
