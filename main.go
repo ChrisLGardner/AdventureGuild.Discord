@@ -39,6 +39,7 @@ type Reminder struct {
 	Job             Job
 	Date            time.Time
 	CreatedDate     time.Time
+	BotSource       string
 }
 
 type Job struct {
@@ -445,6 +446,7 @@ func createReminder(ctx context.Context, job Job, jobMessage *discordgo.Message)
 		Date:            job.Date,
 		CreatedDate:     time.Now(),
 		JobBoardMessage: jobMessage.ID,
+		BotSource:       "AdventureGuild",
 	}
 
 	span.SetAttributes(attribute.String("CreateReminder.Reminder", reminder.json()))
@@ -659,6 +661,9 @@ func findReminders(ctx context.Context, db *mongo.Client, interval int) ([]Remin
 		"date": bson.M{
 			"$gt": start,
 			"$lt": end,
+		},
+		"botsource": bson.M{
+			"$eq": "AdventureGuild",
 		},
 	}
 
